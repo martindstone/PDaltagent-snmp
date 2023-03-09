@@ -1,0 +1,74 @@
+version: '3.8'
+services:
+  rabbit:
+    image: rabbitmq:3-management-alpine
+    container_name: pdaltagent_rabbitmq
+    environment:
+      # Username and password for rabbitmq AMQP and management
+      - RABBITMQ_DEFAULT_USER=pdaltagent
+      - RABBITMQ_DEFAULT_PASS=pdaltagent
+    ports:
+      # AMQP protocol port -- not needed from outside
+      # - '5672:5672'
+      # HTTP management UI
+      - '15672:15672'
+    restart: always
+  pdagentd:
+    image: martindstone/pdaltagent:0.4-beta1
+    container_name: pdaltagent_pdagentd
+    environment:
+      - MONGODB_URL=mongodb://root:example@pdaltagent_mongo/
+
+      # Set CELERY_BROKER_URL to the URL of a backend for Celery:
+      - CELERY_BROKER_URL=pyamqp://pdaltagent:pdaltagent@pdaltagent_rabbitmq//
+
+      # Set PDSEND_EVENTS_BASE_URL to a URL where the pd-send command should send event payloads:
+      - PDSEND_EVENTS_BASE_URL=https://localhost:8443
+
+      # Set PDSEND_SKIP_CERT_VERIFY if you want the pd-send command to skip SSL certificate verification
+      # (for example if you are using a self-signed certificate (which is the default in the Docker image)):
+      - PDSEND_SKIP_CERT_VERIFY=true
+
+      - PDAGENTD_DEFAULT_ROUTING_KEY=PUT_YOUR_ROUTING_KEY_HERE
+    volumes:
+      - ./pdaltagent_pdagentd/plugins:/usr/lib/python3.10/site-packages/pdaltagent/plugins
+      - ./pdaltagent_pdagentd/plugin-lib:/usr/lib/python3.10/site-packages/pdaltagent/plugin-lib
+      - ./pdaltagent_pdagentd/supervisord.conf:/etc/supervisord.conf:ro
+      - ./pdaltagent_pdagentd/snmp:/etc/snmp:ro
+    ports:
+      # flask HTTP
+      - '8080:8080'
+      # flask HTTPS
+      - '8443:8443'
+      # SNMP
+      - '162:162/udp'
+    depends_on:
+      - rabbit
+      - mongo
+    restart: always
+
+  mongo:
+    image: mongo:latest
+    container_name: pdaltagent_mongo
+    restart: always
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=example
+    volumes:
+      - ./pdaltagent_pdagentd/mongo_data:/data/db
+    ports:
+      # Mongo
+      - 27017:27017
+
+  mongo-express:
+    image: mongo-express
+    container_name: pdaltagent_mongo-express
+    restart: always
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_BASICAUTH_USERNAME: pdaltagent
+      ME_CONFIG_BASICAUTH_PASSWORD: pdaltagent
+      ME_CONFIG_MONGODB_ADMINUSERNAME: root
+      ME_CONFIG_MONGODB_ADMINPASSWORD: example
+      ME_CONFIG_MONGODB_URL: mongodb://root:example@mongo:27017/
